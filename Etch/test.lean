@@ -6,9 +6,12 @@ inductive Token (ι : Type)
 | stop (n : Nat)
 | val (x : ι)
 | done
+| empty
 deriving Repr
 
 def Token.comp : Token ℕ → Token ℕ → Ordering
+  | Token.empty, _ => Ordering.eq
+  | _, Token.empty => Ordering.eq
   | Token.done, Token.done => Ordering.eq
   | _, Token.done => Ordering.lt
   | Token.done, _ => Ordering.gt
@@ -31,7 +34,6 @@ inductive Format
 inductive Expr
 | root
 | read (name : Ident) (level : Nat) (input : Expr)
---| intersect (input : Expr) (input: Expr)
 
 example : Expr := .read "m" 1 (.read "m" 0 .root)
 -- example : Expr := .intersect (.read "m1" 0 .root) (.read "m2" 0 .root)
@@ -59,19 +61,7 @@ structure Ctxt (ι : Type) where
 
 #check List.bind
 
-def merge : List Nat → List Nat → List Nat
-| x :: xs, y :: ys =>
-  match Ord.compare x y with
-  | .lt =>
-    have : sizeOf xs < sizeOf (x :: xs) := by decreasing_tactic
-    merge xs (y::ys)
-  | .gt =>
-    have : sizeOf ys < sizeOf (y :: ys) := by decreasing_tactic
-    merge (x::xs) ys
-  | .eq =>
-    have : sizeOf xs < sizeOf (x :: xs) := by decreasing_tactic
-    x :: merge xs ys
-| _, _ => []
+def a : Option ℕ := some 3
 
 partial def binaryIntersectHelper (xr: Stream ℕ) (xc: Stream ℕ) (yr: Stream ℕ)(yc: Stream ℕ) (res_c: Stream ℕ) (res_rx: Stream ℕ) (res_ry: Stream ℕ): Stream ℕ × Stream ℕ × Stream ℕ :=
 match xr, xc, yr, yc with
@@ -88,48 +78,40 @@ match xr, xc, yr, yc with
     binaryIntersectHelper xr xc ys_r ys_c res_c res_rx res_ry
 |  _, _, _, _ => (res_c, res_rx, res_ry)
 
-def xr : Stream ℕ := [(Token.val 0), Token.val 1, (Token.stop 0)]
-def xc : Stream ℕ := [(Token.val 3), Token.val 4, (Token.stop 0)]
-def yr : Stream ℕ := [(Token.val 1), Token.val 2, (Token.stop 0)]
-def yc : Stream ℕ := [(Token.val 4), Token.val 5, (Token.stop 0)]
-#eval binaryIntersectHelper xr xc yr yc [] [] []
+def BinaryIntersect  (r1: Stream ℕ) (c1: Stream ℕ) (r2: Stream ℕ)(c2: Stream ℕ) : Stream ℕ × Stream ℕ × Stream ℕ :=
+  (λ(z1, z2, z3) => (List.reverse z1, List.reverse z2, List.reverse z3)) (binaryIntersectHelper r1 c1 r2 c2 [] [] [])
 
-/-
-inductive StopCont
-| stop
-| cont
-deriving Repr
+-- todo
+def MultiIntersect (l: List (Stream ℕ × Stream ℕ)): Stream ℕ × (List (Stream ℕ)) := sorry
 
-partial def binaryIntersectHelper (xr: Stream ℕ) (xc: Stream ℕ) (a1: StopCont) (yr: Stream ℕ)(yc: Stream ℕ) (a2: StopCont) (res_c: Stream ℕ) (res_rx: Stream ℕ) (res_ry: Stream ℕ): Stream ℕ × Stream ℕ × Stream ℕ  :=
-match xr, xc, a1, yr, yc, a2 with
-| [], _, _, _, _, _
-| _, [], _, _, _, _
-| _, _, _, [], _, _
-| _, _, _, _, [], _
-| Token.done::_, _, _, _, _, _ => (res_c, res_rx, res_ry)
-| _, Token.done::_, _, _, _, _ => (res_c, res_rx, res_ry)
-| _, _, _, Token.done::_, _, _ => (res_c, res_rx, res_ry)
-| _, _, _, _, Token.done::_, _ => (res_c, res_rx, res_ry)
-| xs_r, xs_c, .stop, y::ys_r, Token.val v ::ys_c, .cont
-    => binaryIntersectHelper xs_r xs_c .stop ys_r ys_c .cont res_c res_rx res_ry
-| x::xs_r, Token.val v ::xs_c, .cont, ys_r, ys_c, .stop
-    => binaryIntersectHelper xs_r xs_c .cont ys_r ys_c .stop res_c res_rx res_ry
-| r_x::xs_r, Token.val v_x::xs_c, .cont, r_y::ys_r, Token.val v_y::ys_c, .cont
-    => if v_x < v_y
-      then binaryIntersectHelper xs_r xs_c .cont yr yc .cont res_c res_rx res_ry
-      else if v_x > v_y
-        then binaryIntersectHelper xr xc .cont ys_r ys_c .cont res_c res_rx res_ry
-        else binaryIntersectHelper xs_r xs_c .cont ys_r ys_c .cont (Token.val v_x::res_c) (r_x::res_rx) (r_y::res_ry)
---| xs, Token.stop n_x::xs_c, .cont, ys,
-| _, _, _, _, _, _ => ([], [], [])
--/
+--todo: remove this partial def
+partial def binaryUnionHelper (xr: Stream ℕ) (xc: Stream ℕ) (yr: Stream ℕ)(yc: Stream ℕ) (res_c: Stream ℕ) (res_rx: Stream ℕ) (res_ry: Stream ℕ): Stream ℕ × Stream ℕ × Stream ℕ :=
+match xr, xc, yr, yc with
+| r_x::xs_r, c_x::xs_c, r_y::ys_r, c_y::ys_c =>
+  match Ord.compare c_x c_y with
+  | .eq =>
+    have : sizeOf xs_r < sizeOf (r_x :: xs_r) := by decreasing_tactic
+    binaryUnionHelper xs_r xs_c ys_r ys_c (c_x::res_c) (r_x::res_rx) (r_y::res_ry)
+  | .lt => -- current x crd does not appear in y stream
+    have : sizeOf xs_r < sizeOf (r_x :: xs_r) := by decreasing_tactic
+    binaryUnionHelper xs_r xs_c yr yc (c_x::res_c) (r_x::res_rx) (Token.empty::res_ry)
+  | .gt => -- current y crd does not appear in x stream
+    have : sizeOf ys_r < sizeOf (r_y :: ys_r) := by decreasing_tactic
+    binaryUnionHelper xr xc ys_r ys_c (c_y::res_c) (Token.empty::res_rx) (r_y::res_ry)
+|  _, _, _, _ => (res_c, res_rx, res_ry)
 
+def BinaryUnion (r1: Stream ℕ) (c1: Stream ℕ) (r2: Stream ℕ)(c2: Stream ℕ) : Stream ℕ × Stream ℕ × Stream ℕ :=
+  (λ(z1, z2, z3) => (List.reverse z1, List.reverse z2, List.reverse z3)) (binaryUnionHelper r1 c1 r2 c2 [] [] [])
 
-def binaryIntersect  (r1: Stream ℕ) (c1: Stream ℕ) (r2: Stream ℕ)(c2: Stream ℕ) : Stream ι × Stream ι × Stream ι :=
-  if r1.length = 0 ∨ c1.length = 0 ∨ r2.length = 0 ∨ c2.length = 0
-    then ([], [], [])
-    else
-      ([], [], [])
+-- todo
+def MultiUnion (l: List (Stream ℕ × Stream ℕ)): Stream ℕ × (List (Stream ℕ)) := sorry
+
+def xr : Stream ℕ := [Token.val 0, Token.val 1, Token.stop 0]
+def xc : Stream ℕ := [Token.val 3, Token.val 4, Token.stop 0]
+def yr : Stream ℕ := [Token.val 1, Token.val 2, Token.stop 0]
+def yc : Stream ℕ := [Token.val 4, Token.val 5, Token.stop 0]
+#eval BinaryIntersect xr xc yr yc
+#eval BinaryUnion xr xc yr yc
 
 def Expr.eval (ctxt : Ctxt ι) (e : Expr) : List (Stream ι) :=
 match e with
@@ -154,17 +136,18 @@ match e with
       | .val i => ((ctxt.data name level i).fst |>.map .val) ++ [Token.stop 0] -- ?: Don't add this to the last one?
       | .stop n => [.stop (n+1)]
       | .done => [.done]
+      | .empty => []
     let crd : List (Stream ι) := is.map fun token =>
       match token with
       | .val i => ((ctxt.data name level i).snd |>.map .val) ++ [Token.stop 0] -- ?: Don't add this to the last one?
       | .stop n => [.stop (n+1)]
       | .done => [.done]
+      | .empty => []
     [ref.join, crd.join]
   else []
---| .intersect is js =>
+-- | .intersect is js =>
 
 
--- ?: array/list?
 inductive Level
 | dense (n: Nat) (size: Nat)
 | compressed (n: Nat) (v1: List Nat) (v2: List Nat)
@@ -176,17 +159,7 @@ deriving Repr
 def emptyContext : Ctxt ι where
   data := fun _ _ _  => ([], [])
 
--- todo?: Get rid of this
-def range_zero (n:ℕ) (soFar: List ℕ) : List ℕ :=
-match n with
-| Nat.zero => soFar
-| Nat.succ d => range_zero d soFar ++ [d]
-def range (a:ℕ) (b: ℕ) : List ℕ :=
-  (range_zero (b-a) []).map fun x => x+a
-
-#eval range 2 10
-def l (a b: ℕ) := List.range (b-a) |>.map (.+a)
-#eval l 2 10
+def range (a b: ℕ) := List.range (b-a) |>.map (.+a)
 
 def contextFromData (ident: Ident) (levels: List Level) : Ctxt (ι := Nat) where
   -- data : Ident → ι → List ι
@@ -251,3 +224,33 @@ def mat3_level1 : Expr := .read "m3" 1 (.read "m3" 0 .root)
 #eval mat3_level1.eval c3
 
 end SAM
+
+/-
+inductive StopCont
+| stop
+| cont
+deriving Repr
+
+partial def binaryIntersectHelper (xr: Stream ℕ) (xc: Stream ℕ) (a1: StopCont) (yr: Stream ℕ)(yc: Stream ℕ) (a2: StopCont) (res_c: Stream ℕ) (res_rx: Stream ℕ) (res_ry: Stream ℕ): Stream ℕ × Stream ℕ × Stream ℕ  :=
+match xr, xc, a1, yr, yc, a2 with
+| [], _, _, _, _, _
+| _, [], _, _, _, _
+| _, _, _, [], _, _
+| _, _, _, _, [], _
+| Token.done::_, _, _, _, _, _ => (res_c, res_rx, res_ry)
+| _, Token.done::_, _, _, _, _ => (res_c, res_rx, res_ry)
+| _, _, _, Token.done::_, _, _ => (res_c, res_rx, res_ry)
+| _, _, _, _, Token.done::_, _ => (res_c, res_rx, res_ry)
+| xs_r, xs_c, .stop, y::ys_r, Token.val v ::ys_c, .cont
+    => binaryIntersectHelper xs_r xs_c .stop ys_r ys_c .cont res_c res_rx res_ry
+| x::xs_r, Token.val v ::xs_c, .cont, ys_r, ys_c, .stop
+    => binaryIntersectHelper xs_r xs_c .cont ys_r ys_c .stop res_c res_rx res_ry
+| r_x::xs_r, Token.val v_x::xs_c, .cont, r_y::ys_r, Token.val v_y::ys_c, .cont
+    => if v_x < v_y
+      then binaryIntersectHelper xs_r xs_c .cont yr yc .cont res_c res_rx res_ry
+      else if v_x > v_y
+        then binaryIntersectHelper xr xc .cont ys_r ys_c .cont res_c res_rx res_ry
+        else binaryIntersectHelper xs_r xs_c .cont ys_r ys_c .cont (Token.val v_x::res_c) (r_x::res_rx) (r_y::res_ry)
+--| xs, Token.stop n_x::xs_c, .cont, ys,
+| _, _, _, _, _, _ => ([], [], [])
+-/
