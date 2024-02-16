@@ -23,6 +23,29 @@ def Token.comp : Token ℕ → Token ℕ → Ordering
 instance : Ord (Token ℕ) where
   compare := Token.comp
 
+-- Treat empty tokens as zeros
+def Token.add: Token ℕ → Token ℕ → Token ℕ
+  | Token.val v1, Token.val v2 => Token.val (v1 + v2)
+  | Token.empty, Token.val v => Token.val v
+  | Token.val v, Token.empty => Token.val v
+  | Token.stop n, Token.stop _ => Token.stop n
+  | Token.done, Token.done => Token.done
+  | _, _ => Token.empty --invalid
+
+def Token.mul: Token ℕ → Token ℕ → Token ℕ
+  | Token.val v1, Token.val v2 => Token.val (v1 * v2)
+  | Token.empty, Token.val _ => Token.val 0
+  | Token.val _, Token.empty => Token.val 0
+  | Token.stop n, Token.stop _ => Token.stop n
+  | Token.done, Token.done => Token.done
+  | _, _ => Token.empty --invalid
+
+instance: Add (Token ℕ) where
+  add := Token.add
+
+instance: Mul (Token ℕ) where
+  mul := Token.mul
+
 variable {ι : Type} [Zero ι]
 
 abbrev Stream (ι : Type) := List (Token ι)
@@ -33,37 +56,21 @@ abbrev Ident := String
 inductive Format
 inductive Expr
 | root
-| read (name : Ident) (level : Nat) (input : Expr)
-
-example : Expr := .read "m" 1 (.read "m" 0 .root)
--- example : Expr := .intersect (.read "m1" 0 .root) (.read "m2" 0 .root)
--- example : Expr := .read "m" 1 (.intersect (.read "m1" 0 .root) (.read "m2" 0 .root))
-
-def vec : Expr := .read "v" 0 .root
-
--- ?: Need to store dimensions?
-/-
-Example matrix (Sparse): 6x6
-i: [0 3]
-   [0 3 5]
-j: [0 2 4 5]
-   [1 4 0 1 5]
-val: [1 5 2 3 9]
-
-Example matrix (Dense) 6x6
-i: [6] j: [6]
--/
-
+| scan (name : Ident) (level : Nat) (input : Expr)
+| add (input1: Expr) (input2: Expr)
+| mul (input1: Expr) (input2: Expr)
+| array_load (name : Ident) (input: Expr)
+| select (i: Nat) (input : Expr) -- output of Expr is currently list of streams, select ith stream
+| intersect (input1: Expr) (input2: Expr) -- input1 and input2 are both (ref, crd) pairs; currently only binary intersect
+| union(input1: Expr) (input2: Expr) -- input1 and input2 are both (ref, crd) pairs; currently only binary union
 
 structure Ctxt (ι : Type) where
  -- name -> level -> index -> (ref, crd) for list of children
-  data : Ident → Nat → ι → Prod (List ι) (List ι)
+  level_data : Ident → Nat → ι → Prod (List ι) (List ι)
+ -- name -> index -> val
+  val_data : Ident → ι → ι
 
-#check List.bind
-
-def a : Option ℕ := some 3
-
-partial def binaryIntersectHelper (xr: Stream ℕ) (xc: Stream ℕ) (yr: Stream ℕ)(yc: Stream ℕ) (res_c: Stream ℕ) (res_rx: Stream ℕ) (res_ry: Stream ℕ): Stream ℕ × Stream ℕ × Stream ℕ :=
+partial def binaryIntersectHelper [Ord (Token ι)] (xr: Stream ι) (xc: Stream ι) (yr: Stream ι)(yc: Stream ι) (res_c: Stream ι) (res_rx: Stream ι) (res_ry: Stream ι): Stream ι × Stream ι × Stream ι :=
 match xr, xc, yr, yc with
 | r_x::xs_r, c_x::xs_c, r_y::ys_r, c_y::ys_c =>
   match Ord.compare c_x c_y with
@@ -75,17 +82,17 @@ match xr, xc, yr, yc with
     binaryIntersectHelper xs_r xs_c yr yc res_c res_rx res_ry
   | .gt =>
     have : sizeOf ys_r < sizeOf (r_y :: ys_r) := by decreasing_tactic
-    binaryIntersectHelper xr xc ys_r ys_c res_c res_rx res_ry
+    binaryIntersectHelper (r_x::xs_r) (c_x::xs_c) ys_r ys_c res_c res_rx res_ry
 |  _, _, _, _ => (res_c, res_rx, res_ry)
 
-def BinaryIntersect  (r1: Stream ℕ) (c1: Stream ℕ) (r2: Stream ℕ)(c2: Stream ℕ) : Stream ℕ × Stream ℕ × Stream ℕ :=
+def BinaryIntersect [Ord (Token ι)] (r1: Stream ι) (c1: Stream ι) (r2: Stream ι)(c2: Stream ι) : Stream ι × Stream ι × Stream ι :=
   (λ(z1, z2, z3) => (List.reverse z1, List.reverse z2, List.reverse z3)) (binaryIntersectHelper r1 c1 r2 c2 [] [] [])
 
 -- todo
-def MultiIntersect (l: List (Stream ℕ × Stream ℕ)): Stream ℕ × (List (Stream ℕ)) := sorry
+def MultiIntersect (l: List (Stream ι × Stream ι)): Stream ι × (List (Stream ι)) := sorry
 
 --todo: remove this partial def
-partial def binaryUnionHelper (xr: Stream ℕ) (xc: Stream ℕ) (yr: Stream ℕ)(yc: Stream ℕ) (res_c: Stream ℕ) (res_rx: Stream ℕ) (res_ry: Stream ℕ): Stream ℕ × Stream ℕ × Stream ℕ :=
+def binaryUnionHelper [Ord (Token ι)] (xr: Stream ι) (xc: Stream ι) (yr: Stream ι)(yc: Stream ι) (res_c: Stream ι) (res_rx: Stream ι) (res_ry: Stream ι): Stream ι × Stream ι × Stream ι :=
 match xr, xc, yr, yc with
 | r_x::xs_r, c_x::xs_c, r_y::ys_r, c_y::ys_c =>
   match Ord.compare c_x c_y with
@@ -97,10 +104,10 @@ match xr, xc, yr, yc with
     binaryUnionHelper xs_r xs_c yr yc (c_x::res_c) (r_x::res_rx) (Token.empty::res_ry)
   | .gt => -- current y crd does not appear in x stream
     have : sizeOf ys_r < sizeOf (r_y :: ys_r) := by decreasing_tactic
-    binaryUnionHelper xr xc ys_r ys_c (c_y::res_c) (Token.empty::res_rx) (r_y::res_ry)
+    binaryUnionHelper (r_x::xs_r) (c_x::xs_c) ys_r ys_c (c_y::res_c) (Token.empty::res_rx) (r_y::res_ry)
 |  _, _, _, _ => (res_c, res_rx, res_ry)
 
-def BinaryUnion (r1: Stream ℕ) (c1: Stream ℕ) (r2: Stream ℕ)(c2: Stream ℕ) : Stream ℕ × Stream ℕ × Stream ℕ :=
+def BinaryUnion [Ord (Token ι)] (r1: Stream ι) (c1: Stream ι) (r2: Stream ι)(c2: Stream ι) : Stream ι × Stream ι × Stream ι :=
   (λ(z1, z2, z3) => (List.reverse z1, List.reverse z2, List.reverse z3)) (binaryUnionHelper r1 c1 r2 c2 [] [] [])
 
 -- todo
@@ -113,10 +120,10 @@ def yc : Stream ℕ := [Token.val 4, Token.val 5, Token.stop 0]
 #eval BinaryIntersect xr xc yr yc
 #eval BinaryUnion xr xc yr yc
 
-def Expr.eval (ctxt : Ctxt ι) (e : Expr) : List (Stream ι) :=
+def Expr.eval [Ord (Token ι)] [Mul (Token ι)] [Add (Token ι)] (ctxt : Ctxt ι) (e : Expr) : List (Stream ι) :=
 match e with
 | root => [[.val 0, .done]]
-| .read name level input =>
+| .scan name level input =>
   if h:(input.eval ctxt).length > 0
     then let is := (input.eval ctxt)[0]'h
     -- Examples (Compressed m1):
@@ -133,20 +140,75 @@ match e with
     -- store previous token
     let ref : List (Stream ι) := is.map fun token =>
       match token with
-      | .val i => ((ctxt.data name level i).fst |>.map .val) ++ [Token.stop 0] -- ?: Don't add this to the last one?
+      | .val i => ((ctxt.level_data name level i).fst |>.map .val) ++ [Token.stop 0] -- ?: Don't add this to the last one?
       | .stop n => [.stop (n+1)]
       | .done => [.done]
-      | .empty => []
+      | .empty => [.stop 0] -- ?
     let crd : List (Stream ι) := is.map fun token =>
       match token with
-      | .val i => ((ctxt.data name level i).snd |>.map .val) ++ [Token.stop 0] -- ?: Don't add this to the last one?
+      | .val i => ((ctxt.level_data name level i).snd |>.map .val) ++ [Token.stop 0] -- ?: Don't add this to the last one?
       | .stop n => [.stop (n+1)]
       | .done => [.done]
-      | .empty => []
+      | .empty => [.stop 0] -- ?
     [ref.join, crd.join]
   else []
--- | .intersect is js =>
-
+| .add input1 input2 =>
+  if h:(input1.eval ctxt).length > 0 ∧ (input2.eval ctxt).length > 0
+  then let is := (input1.eval ctxt)[0]'h.left
+       let js := (input2.eval ctxt)[0]'h.right
+       if h: is.length = js.length
+       then [List.range is.length |>.map (λ i => if h_i:i < is.length then
+          have h_j: i < js.length := by { rw [← h]; exact h_i }
+          is[i]'h_i + js[i]'h_j else Token.empty)]
+       else []
+  else []
+| .mul input1 input2 =>
+  if h:(input1.eval ctxt).length > 0 ∧ (input2.eval ctxt).length > 0
+  then let is := (input1.eval ctxt)[0]'h.left
+       let js := (input2.eval ctxt)[0]'h.right
+       if h: is.length = js.length
+       then [List.range is.length |>.map (λ i => if h_i:i < is.length then
+          have h_j: i < js.length := by { rw [← h]; exact h_i }
+          is[i]'h_i * js[i]'h_j else Token.empty)]
+       else []
+  else []
+| .array_load name input =>
+  if h:(input.eval ctxt).length > 0
+    then let is := (input.eval ctxt)[0]'h
+      let val : List (Stream ι) := is.map fun token =>
+        match token with
+        | .val i => [Token.val (ctxt.val_data name i)] -- ?: Don't add this to the last one?
+        | .stop n => [.stop n]
+        | .done => [.done]
+        | .empty => [Token.empty]
+      [val.join]
+    else []
+| select i input =>
+  if h:i < (input.eval ctxt).length
+    then [(input.eval ctxt)[i]'h]
+    else []
+| .intersect input1 input2 =>
+  if h: (input1.eval ctxt).length > 1 ∧ (input2.eval ctxt).length > 1
+  then have h1: (input1.eval ctxt).length > 0 := by linarith --{exact Nat.lt_of_succ_lt h.left}
+       have h2: (input2.eval ctxt).length > 0 := by {exact Nat.lt_of_succ_lt h.right}
+       let r1 := (input1.eval ctxt)[0]'h1
+       let c1 := (input1.eval ctxt)[1]'h.left
+       let r2 := (input2.eval ctxt)[0]
+       let c2 := (input2.eval ctxt)[1]'h.right
+       let p := BinaryIntersect r1 c1 r2 c2
+       [p.fst, p.snd.fst, p.snd.snd]
+  else []
+| .union input1 input2 =>
+  if h: (input1.eval ctxt).length > 1 ∧ (input2.eval ctxt).length > 1
+  then have h1: (input1.eval ctxt).length > 0 := by {exact Nat.lt_of_succ_lt h.left}
+       have h2: (input2.eval ctxt).length > 0 := by {exact Nat.lt_of_succ_lt h.right}
+       let r1 := (input1.eval ctxt)[0]'h1
+       let c1 := (input1.eval ctxt)[1]'h.left
+       let r2 := (input2.eval ctxt)[0]'h2
+       let c2 := (input2.eval ctxt)[1]'h.right
+       let p := BinaryUnion r1 c1 r2 c2
+       [p.fst, p.snd.fst, p.snd.snd]
+  else []
 
 inductive Level
 | dense (n: Nat) (size: Nat)
@@ -157,20 +219,21 @@ deriving Repr
 #check Level.compressed 1 [0, 3] [0, 3, 5]
 
 def emptyContext : Ctxt ι where
-  data := fun _ _ _  => ([], [])
+  level_data := fun _ _ _  => ([], [])
+  val_data := fun _ _ => 0
 
 def range (a b: ℕ) := List.range (b-a) |>.map (.+a)
 
-def contextFromData (ident: Ident) (levels: List Level) : Ctxt (ι := Nat) where
-  -- data : Ident → ι → List ι
+def contextFromData (ident: Ident) (levels: List Level) (vals: List Nat): Ctxt (ι := Nat) where
+  -- level_data : Ident → ι → List ι
   -- ?: Write this function in a better way
-  data := fun name =>
+  level_data := fun name =>
     if name = ident -- Check if name is valid
       then (fun n =>
         if h : n < levels.length -- Check if level number is valid
           then fun i =>
             match levels[n]'h with
-            | Level.dense _ size => (range (size*i) (size*i+size), range 0 size) -- ??
+            | Level.dense _ size => (range (size*i) (size*i+size), range 0 size)
             | Level.compressed _ v1 v2 =>
               if h: (i+1) < v1.length
                 then
@@ -183,45 +246,24 @@ def contextFromData (ident: Ident) (levels: List Level) : Ctxt (ι := Nat) where
                 else ([], [])
           else fun _ => ([], []))
       else fun _ _ => ([], [])
+  val_data := fun name  =>
+    if name = ident
+      then (fun i =>
+        if h: i < vals.length
+          then vals[i]
+          else 0
+      )
+    else 0
 
-def root : Expr := .root
-def mat1_level0 : Expr := .read "m" 0 .root
-def mat1_level1 : Expr := .read "m" 1 (.read "m" 0 .root)
-
-
-def l_i := Level.compressed 0 [0, 3] [0, 3, 5]
-def l_j := Level.compressed 1 [0, 2, 4, 5] [1, 4, 0, 1, 5]
-def c := contextFromData "m" [l_i, l_j]
-
-#eval root.eval (emptyContext (ι := Nat))
-#eval root.eval c
-#eval mat1_level0.eval c
-#eval mat1_level1.eval c
-
-/-
-Example 2 (sparse) 6x6:
-i: [0 5]
-   [1 2 3 4 5]
-j: [0 2 3 4 5 7]
-   [3 4 2 1 4 0 5]
-val: [1 2 3 4 5 6 7]
--/
-def l2_i := Level.compressed 0 [0, 5] [1, 2, 3, 4, 5]
-def l2_j := Level.compressed 1 [0, 2, 3, 4, 5, 7] [3, 4, 2, 1, 4, 0, 5]
-def c2 := contextFromData "n" [l2_i, l2_j]
-
-def l3_i := Level.dense 0 6
-def l3_j := Level.dense 1 6
-def c3 := contextFromData "m3" [l3_i, l3_j]
-
-def mat2_level0 : Expr := .read "n" 0 .root
-def mat2_level1 : Expr := .read "n" 1 (.read "n" 0 .root)
-#eval mat2_level1.eval c2
-
-
-def mat3_level0 : Expr := .read "m3" 0 .root
-def mat3_level1 : Expr := .read "m3" 1 (.read "m3" 0 .root)
-#eval mat3_level1.eval c3
+def joinContexts (ident1: Ident) (c1: Ctxt (ι := Nat)) (ident2: Ident) (c2: Ctxt (ι := Nat)): Ctxt (ι:=Nat) where
+  level_data := fun name =>
+    if name = ident1 then c1.level_data name
+    else if name = ident2 then c2.level_data name
+    else fun _ _ => ([], [])
+  val_data := fun name =>
+    if name = ident1 then c1.val_data name
+    else if name = ident2 then c2.val_data name
+    else 0
 
 end SAM
 
