@@ -62,7 +62,8 @@ inductive Expr
 | array_load (name : Ident) (input: Expr)
 | select (i: Nat) (input : Expr) -- output of Expr is currently list of streams, select ith stream
 | intersect (input1: Expr) (input2: Expr) -- input1 and input2 are both (ref, crd) pairs; currently only binary intersect
-| union(input1: Expr) (input2: Expr) -- input1 and input2 are both (ref, crd) pairs; currently only binary union
+| union (input1: Expr) (input2: Expr) -- input1 and input2 are both (ref, crd) pairs; currently only binary union
+| repeater (inputc: Expr) (inputr: Expr) -- inputc is one crd stream, inputr is one ref stream
 
 structure Ctxt (ι : Type) where
  -- name -> level -> index -> (ref, crd) for list of children
@@ -113,12 +114,28 @@ def BinaryUnion [Ord (Token ι)] (r1: Stream ι) (c1: Stream ι) (r2: Stream ι)
 -- todo
 def MultiUnion (l: List (Stream ℕ × Stream ℕ)): Stream ℕ × (List (Stream ℕ)) := sorry
 
-def xr : Stream ℕ := [Token.val 0, Token.val 1, Token.stop 0]
-def xc : Stream ℕ := [Token.val 3, Token.val 4, Token.stop 0]
-def yr : Stream ℕ := [Token.val 1, Token.val 2, Token.stop 0]
-def yc : Stream ℕ := [Token.val 4, Token.val 5, Token.stop 0]
+def xr : Stream ℕ := [Token.val 0, Token.val 1, Token.stop 0, Token.done]
+def xc : Stream ℕ := [Token.val 3, Token.val 4, Token.stop 0, Token.done]
+def yr : Stream ℕ := [Token.val 1, Token.val 2, Token.stop 0, Token.done]
+def yc : Stream ℕ := [Token.val 4, Token.val 5, Token.stop 0, Token.done]
 #eval BinaryIntersect xr xc yr yc
 #eval BinaryUnion xr xc yr yc
+
+def repeaterHelper (crd: Stream ι) (ref: Stream ι) (m: ℕ): Stream ι :=
+match crd with
+| [] => [] -- This case should never happen since every stream has a done token
+| Token.val _::crds => repeaterHelper crds ref (m+1)
+| Token.empty::crds => repeaterHelper crds ref m     -- Ignore empty tokens
+| _::_ => let val : List (Stream ι) := ref.map fun token => match token with
+        | .val i => List.range m |>.map (fun _ => .val i)
+        | c => [c]
+      val.join
+
+-- Repeat each non-control token in ref m times, where m is number of non-control tokens in crd seen before a stop token is seen
+def Repeat (crd: Stream ι) (ref: Stream ι): Stream ι :=
+  repeaterHelper crd ref 0
+
+#eval Repeat xc xr -- should be [0, 0, 1, 1, s0, done]
 
 def Expr.eval [Ord (Token ι)] [Mul (Token ι)] [Add (Token ι)] (ctxt : Ctxt ι) (e : Expr) : List (Stream ι) :=
 match e with
@@ -178,9 +195,7 @@ match e with
       let val : List (Stream ι) := is.map fun token =>
         match token with
         | .val i => [Token.val (ctxt.val_data name i)] -- ?: Don't add this to the last one?
-        | .stop n => [.stop n]
-        | .done => [.done]
-        | .empty => [Token.empty]
+        | c => [c]
       [val.join]
     else []
 | select i input =>
@@ -209,6 +224,12 @@ match e with
        let p := BinaryUnion r1 c1 r2 c2
        [p.fst, p.snd.fst, p.snd.snd]
   else []
+|.repeater inputc inputr =>
+  if h:(inputc.eval ctxt).length > 0 ∧ (inputr.eval ctxt).length > 0
+  then let crd := (inputc.eval ctxt)[0]'h.left
+       let ref := (inputr.eval ctxt)[0]'h.right
+    [Repeat crd ref]
+  else []
 
 inductive Level
 | dense (n: Nat) (size: Nat)
@@ -236,10 +257,7 @@ def contextFromData (ident: Ident) (levels: List Level) (vals: List Nat): Ctxt (
             | Level.dense _ size => (range (size*i) (size*i+size), range 0 size)
             | Level.compressed _ v1 v2 =>
               if h: (i+1) < v1.length
-                then
-                  have h': i < v1.length := by {
-                    exact Nat.lt_of_succ_lt h
-                  }
+                then have h': i < v1.length := by { exact Nat.lt_of_succ_lt h }
                   if h2: v1[i+1] <= v2.length ∧ v1[i]'h' < v2.length
                   then (range v1[i] v1[i+1], v2.toArray[v1[i]:v1[i+1]].toArray.toList)
                   else ([], [])
