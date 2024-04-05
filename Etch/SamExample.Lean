@@ -8,8 +8,8 @@ namespace SAM
 v1: compressed [0 3] [0 3 5] vals: [1 4 6] i.e. [1, 0, 0, 4, 0, 6]
 v2: dense [6] vals: [1, .. 6] i.e. [1, 2, 3, 4, 5, 6]
 -/
-def c_v1 : Ctxt ℕ ℕ := contextFromData "v1" [(Level.compressed 0 [0, 3] [0, 3, 5])] [1, 4, 6]
-def c_v2 : Ctxt ℕ ℕ := contextFromData "v2" [(Level.dense 0 6)] [1, 2, 3, 4, 5, 6]
+def c_v1 : Ctxt ℕ ℕ := contextFromData "v1" [(Level.compressed [0, 3] [0, 3, 5])] [1, 4, 6]
+def c_v2 : Ctxt ℕ ℕ := contextFromData "v2" [(Level.dense 6)] [1, 2, 3, 4, 5, 6]
 def c_v := joinContexts "v1" c_v1 "v2" c_v2
 
 def crd_cap : Expr := .intersect (.scan "v1" 0 .root) (.scan "v2" 0 .root)
@@ -51,8 +51,8 @@ def mat1_level0 : Expr := .scan "m1" 0 .root
 def mat1_level1 : Expr := .scan "m1" 1 (.scan "m1" 0 .root)
 def mat1_val : Expr := .array_load "m1" (.select 0 mat1_level1)
 
-def l1_i := Level.compressed 0 [0, 3] [0, 3, 5]
-def l1_j := Level.compressed 1 [0, 2, 4, 5] [1, 4, 0, 1, 5]
+def l1_i := Level.compressed [0, 3] [0, 3, 5]
+def l1_j := Level.compressed [0, 2, 4, 5] [1, 4, 0, 1, 5]
 def l1_v := [1, 5, 2, 3, 9]
 def c1 := contextFromData "m1" [l1_i, l1_j] l1_v
 
@@ -61,13 +61,13 @@ def c1 := contextFromData "m1" [l1_i, l1_j] l1_v
 #eval mat1_val.eval c1
 
 
-def l2_i := Level.compressed 0 [0, 5] [1, 2, 3, 4, 5]
-def l2_j := Level.compressed 1 [0, 2, 3, 4, 5, 7] [3, 4, 2, 1, 4, 0, 5]
+def l2_i := Level.compressed [0, 5] [1, 2, 3, 4, 5]
+def l2_j := Level.compressed [0, 2, 3, 4, 5, 7] [3, 4, 2, 1, 4, 0, 5]
 def l2_v := [1, 2, 3, 4, 5, 6, 7]
 def c2 := contextFromData "m2" [l2_i, l2_j] l2_v
 
-def l3_i := Level.dense 0 6
-def l3_j := Level.dense 1 6
+def l3_i := Level.dense 6
+def l3_j := Level.dense 6
 def l3_v := range 0 36
 def c3 := contextFromData "m3" [l3_i, l3_j] l3_v
 

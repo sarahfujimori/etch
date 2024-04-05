@@ -3,12 +3,8 @@ import Mathlib.Tactic
 /- todo
 - Multi intersect/union
 - Ref/Crd/Val distinction
-- think about changing expr data structure
-- fix level scanner
 - Fix types to be different for values
-- Generalize vector reducer (type and dimension)
-- remove partial def on extendlist method
-- get rid of level number in level constructor
+- Write vector reducer
 -/
 
 namespace SAM
@@ -78,16 +74,16 @@ abbrev Ident := String
 
 inductive Level
 | null
-| dense (n: Nat) (size: Nat)
-| compressed (n: Nat) (v1: List Nat) (v2: List Nat)
+| dense (size: Nat)
+| compressed (v1: List Nat) (v2: List Nat)
 deriving Repr
 
 structure Ctxt (α: Type) (ι : Type) where
 levels: Ident → (List Level)
 val: Ident → (List α)
 
-#check Level.dense 0 3
-#check Level.compressed 1 [0, 3] [0, 3, 5]
+#check Level.dense 3
+#check Level.compressed [0, 3] [0, 3, 5]
 
 def emptyContext : Ctxt α ι where
 levels := fun _ => []
@@ -100,8 +96,8 @@ def getLevel (n: ℕ) (ident: Ident) (c: Ctxt α ι) : Level :=
 
 def getChildren (level: Level) (i: Nat): List ℕ × List ℕ :=
 match level with
-| Level.dense _ size => (range (size*i) (size*i+size), range 0 size)
-| Level.compressed _ v1 v2 => if h: (i+1) < v1.length
+| Level.dense size => (range (size*i) (size*i+size), range 0 size)
+| Level.compressed v1 v2 => if h: (i+1) < v1.length
                 then have h': i < v1.length := by { exact Nat.lt_of_succ_lt h }
                   if h2: v1[i+1] <= v2.length ∧ v1[i]'h' < v2.length
                   then (range v1[i] v1[i+1], v2.toArray[v1[i]:v1[i+1]].toArray.toList)
